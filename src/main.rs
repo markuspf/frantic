@@ -1,3 +1,4 @@
+use std::ptr::null_mut;
 use std::sync::atomic::Ordering;
 use std::{ptr, sync::atomic::AtomicPtr};
 
@@ -40,46 +41,46 @@ impl MPSCQueue {
 
         current_head == current_tail
     }
-    /*
 
-    fn pop(&mut self) -> () {
+    fn pop(&mut self) -> *mut MPSCQueueNode {
         let mut current = self.tail.load(Ordering::Acquire);
-        let mut next = current.next.load(Ordering::Acquire);
+        let mut next = unsafe { (*current).next.load(Ordering::Acquire) };
+        let stub = &mut self.stub as *mut _;
 
-        if current == self.stub {
+        if current == stub {
             // The queue does not contain a
             // reachable element
-            if next == null {
-                return;
+            if next == null_mut() {
+                return null_mut();
             }
 
             self.tail.store(next, Ordering::Release);
             current = next;
-            next = next.load(Ordering::Acquire);
+            next = unsafe { (*next).next.load(Ordering::Acquire) };
         }
 
-        if next != null {
+        if next != null_mut() {
             self.tail.store(next, Ordering::Release);
-            return; // tail;
+            return current;
         }
 
         let current_head = self.head.load(Ordering::Acquire);
 
-        if self.tail != current_head {
-            return;
+        if self.tail.load(Ordering::Acquire) != current_head {
+            return null_mut();
         }
 
-        self.push(&stub);
+        self.push(stub);
 
-        next = current.next.load(Ordering::Acquire);
+        next = unsafe { (*current).next.load(Ordering::Acquire) };
 
-        if next != null {
-            self.tail.store(next);
-            current.next.store(null, Ordering::Release);
+        if next != null_mut() {
+            self.tail.store(next, Ordering::Release);
+            unsafe { (*current).next.store(null_mut(), Ordering::Release) };
         }
 
-        return ();
-    }*/
+        return null_mut();
+    }
 }
 
 #[test]
@@ -98,6 +99,43 @@ fn construct_push_not_empty() {
     assert!(!queue.empty());
 }
 
+#[test]
+fn push_n_pop() {
+    let mut queue = MPSCQueue::new();
+    let mut n1 = MPSCQueueNode::default();
+    let mut n2 = MPSCQueueNode::default();
+    let mut n3 = MPSCQueueNode::default();
+
+    queue.push(&mut n1);
+    queue.push(&mut n2);
+    queue.push(&mut n3);
+
+    assert!(!queue.empty());
+
+    let m1 = queue.pop();
+    let m2 = queue.pop();
+    let m3 = queue.pop();
+
+    assert!(queue.empty());
+}
+
 fn main() {
+    let mut queue = MPSCQueue::new();
+    let mut n1 = MPSCQueueNode::default();
+    let mut n2 = MPSCQueueNode::default();
+    let mut n3 = MPSCQueueNode::default();
+
+    queue.push(&mut n1);
+    queue.push(&mut n2);
+    queue.push(&mut n3);
+
+    assert!(!queue.empty());
+
+    let m1 = queue.pop();
+    let m2 = queue.pop();
+    let m3 = queue.pop();
+
+    assert!(queue.empty());
+
     println!("Hello, world!");
 }
