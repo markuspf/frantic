@@ -1,8 +1,9 @@
 use std::sync::atomic::Ordering;
-use std::{ptr::null, sync::atomic::AtomicPtr};
+use std::{ptr, sync::atomic::AtomicPtr};
 
 #[derive(Default)]
 struct MPSCQueueNode {
+    value: u64,
     next: AtomicPtr<MPSCQueueNode>,
 }
 
@@ -15,19 +16,29 @@ struct MPSCQueue {
 
 impl MPSCQueue {
     fn new() -> MPSCQueue {
-        MPSCQueue::default()
+        let mut q = MPSCQueue::default();
+        q.head.store(&mut q.stub, Ordering::Release);
+        q.tail.store(&mut q.stub, Ordering::Release);
+        q
     }
 
     fn push(&mut self, node: *mut MPSCQueueNode) {
         unsafe {
-            (*node).next = null;
-        }
+            (*node).next.store(ptr::null_mut(), Ordering::Relaxed);
+        };
 
-        let prev = self
-            .head
-            .compare_exchange(self.head, node, Ordering::SeqCst, Ordering::Relaxed);
+        let previous = self.head.swap(node, Ordering::Relaxed);
 
-        prev.next.store(node, Ordering::Release);
+        unsafe {
+            (*previous).next.store(node, Ordering::Release);
+        };
+    }
+
+    fn empty(&self) -> bool {
+        let current_tail = self.tail.load(Ordering::Acquire);
+        let current_head = self.head.load(Ordering::Acquire);
+
+        current_head == current_tail
     }
     /*
 
@@ -71,8 +82,22 @@ impl MPSCQueue {
     }*/
 }
 
-fn main() {
-    let x = MPSCQueue::new();
+#[test]
+fn construct_empty() {
+    let queue = MPSCQueue::new();
+    assert!(queue.empty());
+}
 
+#[test]
+fn construct_push_not_empty() {
+    let mut queue = MPSCQueue::new();
+    let mut n = MPSCQueueNode::default();
+
+    queue.push(&mut n);
+
+    assert!(!queue.empty());
+}
+
+fn main() {
     println!("Hello, world!");
 }
